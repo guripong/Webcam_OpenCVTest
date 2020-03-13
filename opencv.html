@@ -1,0 +1,486 @@
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    
+    <title>opencv 테스트</title>
+
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+
+    <script src="https://cdn.bnr.co.kr/externel_modules/bluebird/3.3.5/bluebird.min.js"></script>
+    <script src="https://cdn.bnr.co.kr/externel_modules/polyfill/v3/polyfill.min.js"></script>
+    <script src="https://cdn.bnr.co.kr/externel_modules/jquery/3.1.1/jquery-3.1.1.min.js"></script>
+
+
+    <script src="./js/adapter-latest.js"></script>
+    <script src="./js/stats.min.js"></script>
+    <script src="./js/dat.gui.min.js"></script>
+    <script>
+        var Module = {
+            wasmBinaryFile: 'https://readerseye.s3.ap-northeast-2.amazonaws.com/MLdataset/opencv_js.wasm',
+            preRun: [function () {
+                Module.FS_createPreloadedFile('/', 'haarcascade_eye.xml', 'https://readerseye.s3.ap-northeast-2.amazonaws.com/MLdataset/haarcascade_eye.xml', true, false);
+                Module.FS_createPreloadedFile('/', 'haarcascade_frontalface_default.xml', 'https://readerseye.s3.ap-northeast-2.amazonaws.com/MLdataset/haarcascade_frontalface_default.xml', true, false);
+                Module.FS_createPreloadedFile('/', 'haarcascade_profileface.xml', 'https://readerseye.s3.ap-northeast-2.amazonaws.com/MLdataset/haarcascade_profileface.xml', true, false);
+                Module.FS_createPreloadedFile('/', 'haarcascade_eye_tree_eyeglasses.xml', 'https://readerseye.s3.ap-northeast-2.amazonaws.com/MLdataset/haarcascade_eye_tree_eyeglasses.xml', true, false);
+
+                //https://readerseye.s3.ap-northeast-2.amazonaws.com/MLdataset/haarcascade_eye_tree_eyeglasses.xml
+
+            }],
+            _main: function () { 
+                console.log("ready opencvmodule");
+                //////시작
+                opencvIsReady(); 
+            }
+        };
+    </script>
+    <script src="./js/opencv.js"></script>
+
+
+
+    <link rel="stylesheet" href="./stylesheets/main.css">
+    <style>
+        div {
+            margin: 10px;
+        }
+
+
+
+        label {
+            padding-right: 10px;
+            width: 25%;
+            vertical-align: top;
+            font: 16px 'Lucida Grande', sans-serif;
+            border:1px solid red;
+        }
+    </style>
+</head>
+
+<body>
+    <div  style="width:100%; height:20px; background-color:yellow;">
+       
+    </div>
+    <div style="display:flex; justify-content: center; align-items: center; border:1px solid orange;">
+        <video id="video" width=640 height=480 crossorigin="anonymous" controls>
+            브라우저가 videoTag를 지원하지 않음.
+        </video>
+        <div style="width:100px;">
+
+        </div>
+        <canvas id="canvasOutput" width=640 height=480></canvas>
+    </div>
+    <div style="display:flex; justify-content:center; align-items:center; border:1px solid blue; height:150px;">
+        <div id="status_frame_wrapper" style="width:100px; height:100px; position:relative; border:1px solid blue;">
+        </div>
+        <div style="width:500px; height:100px; border:1px solid blue;">
+            <input type="checkbox" id="flipImage" value="flipImage" checked>
+            <label for="flipImage" >flipImage</label>
+
+            <input type="checkbox" id="face" name="classifier" value="face" checked>
+            <label for="face">face</label>
+    
+            <input type="checkbox" id="eye" name="cascade" value="eye" checked>
+            <label for="eye">eye</label>
+
+            <input type="checkbox" id="eyetree"  value="eyetree" >
+            <label for="eyetree">eyetree</label>
+
+            <div>
+                <label for="selectCamera">웹캠선택</label>
+                <select id="selectCamera">
+                </select>
+                <button onclick="startCamera();">start(웹캠)</button>
+            </div>
+
+
+            <div>
+                <select id="videoSelect">
+                    <option value="https://readingcontent.s3.ap-northeast-2.amazonaws.com/test/mytest.mp4">녹화1</option>
+                    <option value="https://readerseye.s3.ap-northeast-2.amazonaws.com/MLdataset/WIN_20200313_16_01_18_Pro.mp4">녹화2</option>
+                </select>
+                <button onclick="startVideo();">start(녹화본)</button>
+                <button onclick="stopCameraOrVideo();">stop</button>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="text-center">
+     
+    </div>
+
+
+
+
+    </div>
+    <script>
+                var definedWidth=640;
+                var definedHeight=480;
+//        var definedWidth=640;
+//        var definedHeight=480;
+  
+        var stats;
+
+        let videoWidth, videoHeight;
+        
+        // whether streaming video from the camera.
+        let streaming = false;
+        let playingvideo = false;
+        let video = document.getElementById('video');
+        let canvasOutput = document.getElementById('canvasOutput');
+        let canvasOutputCtx = canvasOutput.getContext('2d');
+        let stream = null;
+
+        let detectFace = document.getElementById('face');
+        let detectEye = document.getElementById('eye');
+        let detectEyetree = document.getElementById('eyetree');
+     
+        let faceClassifier = null;
+        let eyeClassifier = null;
+        let eyetreeClassifier = null;
+
+        let src = null;
+        let dstC1 = null;
+        let dstC3 = null;
+        let dstC4 = null;
+
+        let canvasInput = null;
+        let canvasInputCtx = null;
+
+        let canvasBuffer = null;
+        let canvasBufferCtx = null;
+    
+        var srcMat;
+        var grayMat;
+        var videoOption={
+            width:definedWidth,
+            height:definedHeight,
+            deviceId:{
+                exact:$('#selectCamera').val()
+            }
+        }
+        function gotDevices(mediaDevices) {
+            $('#selectCamera').empty();
+            let count = 1;
+            mediaDevices.forEach(mediaDevice => {
+                if (mediaDevice.kind === 'videoinput') {
+                    console.log('camera찾음:'+mediaDevice.deviceId);
+                    const option = document.createElement('option');
+                    option.value = mediaDevice.deviceId;
+                    const label = mediaDevice.label || `Camera ${count++}`;
+                    const textNode = document.createTextNode(label);
+
+                    option.appendChild(textNode);
+                    $('#selectCamera').append(option);
+                }
+            });
+            videoOption.deviceId.exact = $('#selectCamera').val();
+            $('#selectCamera').change(function(){
+                //바뀜;
+                if(streaming)
+                {
+                    stream.getVideoTracks()[0].stop();
+                    streaming=false;
+                }
+
+                /*
+                stream.getTracks().forEach(track => {
+                    track.stop();
+                });
+                */
+                
+                videoOption.deviceId.exact = $('#selectCamera').val();
+                startCamera();
+                console.log("aa");
+            });
+         }
+
+         
+
+ 
+        function startCamera() {
+            if (streaming||playingvideo){
+                 alert("이미재생중");
+                return;
+            }
+
+
+            //console.log($('#selectCamera').val());
+
+
+            navigator.mediaDevices.getUserMedia({
+                video:videoOption,
+                /* 
+                video: {
+                     width:definedWidth,
+                     height:definedHeight,
+                     deviceId:{
+                        exact:$('#selectCamera').val()
+                     }
+                 }, */
+                 audio: false 
+                 }
+                 ).then(function (s) {
+                stream = s;
+                video.srcObject = s;
+                video.play();
+            }).catch(function (err) {
+                console.log("An error occured! " + err);
+            });
+
+                video.addEventListener("canplay", function (ev) {
+                if (!streaming && !playingvideo) {
+                    videoWidth = 640;
+                    videoHeight = 480;
+                //    videoWidth = video.videoWidth;
+                //    videoHeight = video.videoHeight;
+                    console.log("이벤트 리스너 등록 canplay");
+                    console.log("원본사이즈:"+videoWidth+'x'+videoHeight);
+
+                    video.setAttribute("width", videoWidth);
+                    video.setAttribute("height", videoHeight);
+                    canvasOutput.width = 640;
+                    canvasOutput.height = 480;
+  //                  canvasOutput.width = videoWidth;
+  //                  canvasOutput.height = videoHeight;
+                    streaming = true;
+                    startVideoProcessing();
+                }
+            }, false);
+        }
+        function startVideo(){
+            if (streaming||playingvideo){
+                 alert("이미재생중");
+                return;
+            }
+            let source = document.createElement('source');
+
+            source.setAttribute('src', $('#videoSelect').val());
+            video.appendChild(source);
+            video.play();
+
+            video.addEventListener("canplay", function (ev) {
+                if (!streaming && !playingvideo) {
+                    videoWidth = video.videoWidth;
+                    videoHeight = video.videoHeight;
+                    console.log("이벤트 리스너 등록 canplay");
+                    console.log("원본사이즈:"+videoWidth+'x'+videoHeight);
+
+                    video.setAttribute("width", videoWidth);
+                    video.setAttribute("height", videoHeight);
+                    canvasOutput.width = videoWidth;
+                    canvasOutput.height = videoHeight;
+                    playingvideo = true;
+                    startVideoProcessing();
+                }
+            }, false);
+
+        }
+       
+
+        function startVideoProcessing() {
+            console.log("@비디오프로세스시작@");
+            
+            if (!streaming&&!playingvideo) { 
+                console.warn("Please startup your webcam or video(startVideoProcessing)"); 
+                return; 
+            }
+            stopVideoProcessing();
+            canvasInput = document.createElement('canvas');
+            canvasInput.width = videoWidth;
+            canvasInput.height = videoHeight;
+            canvasInputCtx = canvasInput.getContext('2d');
+
+            /*
+            canvasBuffer = document.createElement('canvas');
+            canvasBuffer.width = videoWidth;
+            canvasBuffer.height = videoHeight;
+            canvasBufferCtx = canvasBuffer.getContext('2d');
+            */
+
+            srcMat = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4); //4
+            grayMat = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC1);//1
+            //rayMat = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC1);
+
+            faceClassifier = new cv.CascadeClassifier();
+            faceClassifier.load('haarcascade_frontalface_default.xml');
+
+            eyeClassifier = new cv.CascadeClassifier();
+            eyeClassifier.load('haarcascade_eye.xml');
+   
+            eyetreeClassifier = new cv.CascadeClassifier();
+            eyetreeClassifier.load('haarcascade_eye_tree_eyeglasses.xml');
+                requestAnimationFrame(processVideo);
+                
+
+        }
+
+        function processVideo() {
+            if (!streaming&&!playingvideo) { 
+                console.warn("Please startup your webcam or video (processVideo)"); 
+                return; 
+            }
+            //console.log("@@processVideo");
+            stats.begin(); //processVideo 호출수로 프레임 결정
+            canvasInputCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
+            let imageData = canvasInputCtx.getImageData(0, 0, videoWidth, videoHeight); //비디오를 캔버스에 옴겨 그리고
+            srcMat.data.set(imageData.data); //이미지데이터를 받아옴
+
+            cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY); //흑백으로 전환
+            
+            if ($('#flipImage').is(':checked'))cv.flip(srcMat,grayMat, 1);
+
+            let faces = [];
+            let eyes = [];
+            let eyetrees=[];
+            let size;
+
+            if (detectFace.checked) {
+                let faceVect = new cv.RectVector();
+                let faceMat = new cv.Mat();
+
+                if (detectEye.checked) {
+                    cv.pyrDown(grayMat, faceMat); //이미지 50% 줄여서 반환
+                    //cv.pyrDown(faceMat, faceMat); //이걸 안하면 프레임수가 많이 낮아짐
+                    size = faceMat.size();
+                } else {
+                    cv.pyrDown(grayMat, faceMat);
+                    //cv.pyrDown(faceMat, faceMat);
+                    size = faceMat.size();
+                }
+                faceClassifier.detectMultiScale(faceMat, faceVect);
+
+                for (let i = 0; i < faceVect.size(); i++) {
+                    let face = faceVect.get(i);
+                    //console.log(face);
+                    faces.push(new cv.Rect(face.x, face.y, face.width, face.height));
+                    if (detectEye.checked) {
+                        let eyeVect = new cv.RectVector();
+//                        let eyeMat = faceMat.getRoiRect(face);
+                        let eyeMat = faceMat.roi(face);
+                        eyeClassifier.detectMultiScale(eyeMat, eyeVect); //eyeMat 할당.
+
+                        for (let i = 0; i < eyeVect.size(); i++) {
+                            let eye = eyeVect.get(i);
+                            eyes.push(new cv.Rect(face.x + eye.x, face.y + eye.y, eye.width, eye.height));
+                        }
+                        eyeMat.delete();
+                        eyeVect.delete();
+                    }
+                    if (detectEyetree.checked){
+                        let eyetreeVect = new cv.RectVector();
+                        let eyetreeMat = faceMat.roi(face);
+                        eyetreeClassifier.detectMultiScale(eyetreeMat, eyetreeVect); //eyetreeMat 할당.
+                        for (let i = 0; i < eyetreeVect.size(); i++) {
+                            let eye = eyetreeVect.get(i);
+                            eyetrees.push(new cv.Rect(face.x + eye.x, face.y + eye.y, eye.width, eye.height));
+                        }
+                        eyetreeMat.delete();
+                        eyetreeVect.delete();
+                    }
+                }
+                faceMat.delete();
+                faceVect.delete();
+            } 
+            else 
+            {
+                if (detectEye.checked) {
+                    let eyeVect = new cv.RectVector();
+                    let eyeMat = new cv.Mat();
+                    cv.pyrDown(grayMat, eyeMat);
+                    //cv.pyrDown(eyeMat, eyeMat);//이걸 안하면 프레임수가 많이 낮아짐
+                    size = eyeMat.size();
+                    eyeClassifier.detectMultiScale(eyeMat, eyeVect);
+                    for (let i = 0; i < eyeVect.size(); i++) {
+                        let eye = eyeVect.get(i);
+                        eyes.push(new cv.Rect(eye.x, eye.y, eye.width, eye.height));
+                    }
+                    eyeMat.delete();
+                    eyeVect.delete();
+                }
+            }
+
+  
+          
+
+            
+
+            //canvasOutputCtx.drawImage(canvasInput, 0, 0, videoWidth, videoHeight);
+            cv.imshow('canvasOutput', grayMat);
+            drawResults(canvasOutputCtx, faces, 'red', size);
+            drawResults(canvasOutputCtx, eyes, 'yellow', size);
+            drawResults(canvasOutputCtx, eyetrees, 'green', size);
+            stats.end();
+            requestAnimationFrame(processVideo);
+        }
+
+        function drawResults(ctx, results, color, size) {
+            for (let i = 0; i < results.length; ++i) {
+                let rect = results[i];
+                let xRatio = videoWidth / size.width;
+                let yRatio = videoHeight / size.height;
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = color;
+                ctx.strokeRect(rect.x * xRatio, rect.y * yRatio, rect.width * xRatio, rect.height * yRatio);
+            }
+        }
+
+        function stopVideoProcessing() {
+            if (src != null && !src.isDeleted()) src.delete();
+            if (dstC1 != null && !dstC1.isDeleted()) dstC1.delete();
+            if (dstC3 != null && !dstC3.isDeleted()) dstC3.delete();
+            if (dstC4 != null && !dstC4.isDeleted()) dstC4.delete();
+        }
+
+        function stopCameraOrVideo() {
+       
+            if (!streaming && !playingvideo ) return;
+            
+            stopVideoProcessing();
+            //console.log(canvasOutput.width+'//'+canvasOutput.height)
+            canvasOutputCtx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
+            //document.getElementById("canvasOutput").getContext("2d").clearRect(0, 0, canvasOutput.width, canvasOutput.height);
+            video.pause();
+            $('#video').empty();
+            video.srcObject = null;
+            
+            if(streaming)
+            {
+                stream.getVideoTracks()[0].stop();
+                streaming = false;
+            }
+            if(playingvideo)
+            {
+                playingvideo=false;
+            }
+
+        }
+
+        function initUI() {
+            console.log("2. 프레임판넬 설정완료");
+            //https://github.com/mrdoob/stats.js/
+            //stats 사용법~ star6400개
+
+            stats = new Stats();
+            stats.showPanel(0);
+            $('#status_frame_wrapper').append(stats.dom);
+//            document.getElementById('status_frame_wrapper').appendChild(stats.dom);
+            //console.log(stats.dom);
+        }
+
+        function opencvIsReady() {
+            console.log('1. OpenCV.js is ready');
+            initUI();
+            //startCamera();
+        }
+    </script>
+    <script>
+        $(document).ready(function(){
+            console.log("ready document");
+            navigator.mediaDevices.enumerateDevices().then(gotDevices);
+        });
+    </script>
+</body>
+
+
+</html>
